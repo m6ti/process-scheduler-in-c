@@ -9,16 +9,20 @@ void * processGenerator(void* p);
 void * processRunner(void* p);
 void * processTerminator(void* p);
 void processInfo(char* event, Process* process);
-void queueInfo(char* event, char* status, int size, Process* process);
-void simulatorInfo(Process* process);
+void queueInfo(char* event, char* status, int size, Process* process, int specifyPriority);
+void simulatorInfo(Process* process, char* scheduling);
 void simulatorReadyInfo(Process* process);
 void terminationInfo(Process* process, int counter);
 void simulatorTerminated(Process* process, int responseTime, int turnaroundTime);
 void finalTerminationInfo();
 
 sem_t empty,full,sync1,disposalSync,disposalDone;
+//sem_t disposalDone;
 
-LinkedList readyQueue = LINKED_LIST_INITIALIZER;
+LinkedList readyQueues[NUMBER_OF_PRIORITY_LEVELS] = {LINKED_LIST_INITIALIZER};
+
+
+
 LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 
 int totalResponseTime = 0;
@@ -33,7 +37,6 @@ typedef struct {
     int active;
     Process *process;
 } ProcessTableEntry;
-
 ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
 int getPidFromPool(){
@@ -59,6 +62,7 @@ int main(){
     sem_init(&empty, 0, 1);
     sem_init(&disposalSync, 0, 0);
     sem_init(&disposalDone, 0, 0);
+
 
     pthread_create((&pGenerator), NULL, processGenerator, NULL);
     pthread_create((&pRunner), NULL, processRunner, NULL);
@@ -94,14 +98,13 @@ void * processGenerator( void * p){
 //            tempProcess = generateProcess(idTracker);
 //            int pid = getPidFromPool();
 
-
             processInfo("GENERATOR - CREATED",tempProcess);
 
             idTracker++;
             readyProcesses++;
             processesLeftToGenerate--;
-            addLast(tempProcess, &readyQueue);
-            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess);
+            addLast(tempProcess, &(readyQueues[tempProcess->iPriority]));
+            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, 0);
 
             processInfo("GENERATOR - ADMITTED",tempProcess);
         }
@@ -112,67 +115,77 @@ void * processGenerator( void * p){
 }
 
 
-void * processRunner( void* p){
+void * processRunner( void* p) {
     Process *tempProcess;
     long responseTime, turnAroundTime;
     int terminatedFlag = 0;
 
-    while(1){
-        sem_wait(&full);
-        sem_wait(&sync1);
-        while(1){
-            tempProcess = ((Process *)(getHead(readyQueue)->pData));
+    while (1) {
+        while (1) {
+            for(int i=0; i< NUMBER_OF_PRIORITY_LEVELS; i++){
 
-            removeFirst(&readyQueue);
-            queueInfo("QUEUE - REMOVED", "READY", readyProcesses, tempProcess);
-            readyProcesses--;
+                sem_wait(&full);
+                sem_wait(&sync1);
 
-            runPreemptiveProcess(tempProcess,true);
-            simulatorInfo(tempProcess);
+                tempProcess = ((Process *) (getHead(readyQueues[i])->pData));
 
-            if(tempProcess->iState == TERMINATED){
-                // If the process terminates, add to the terminated queue.
-                addLast(tempProcess,&terminatedQueue);
+                removeFirst(&readyQueues[i]);
+                queueInfo("QUEUE - REMOVED", "READY", readyProcesses, tempProcess, 0);
+                readyProcesses--;
 
-                responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,tempProcess->oFirstTimeRunning);
-                turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,tempProcess->oLastTimeRunning);
-                totalResponseTime += responseTime;
-                totalTurnAroundTime += turnAroundTime;
+                if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
+                    runPreemptiveProcess(tempProcess, false);
+                    simulatorInfo(tempProcess, "RR");
+                } else {
+                    while (tempProcess->iRemainingBurstTime != 0) {
+                        runNonPreemptiveProcess(tempProcess, false);
+                    }
+                    simulatorInfo(tempProcess, "FCFS");
+    //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);
+                }
+                if (tempProcess->iState == TERMINATED) {
+                    // If the process terminates, add to the terminated queue.
+                    addLast(tempProcess, &terminatedQueue);
 
-                simulatorTerminated(tempProcess,responseTime,turnAroundTime);
-                queueInfo("QUEUE - ADDED", "TERMINATED", 1, tempProcess);
-                simulatorReadyInfo(tempProcess);
-                terminatedFlag = 1;
+                    responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
+                                                               tempProcess->oFirstTimeRunning);
+                    turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
+                                                                 tempProcess->oLastTimeRunning);
+                    totalResponseTime += responseTime;
+                    totalTurnAroundTime += turnAroundTime;
 
-                sem_post(&disposalSync);
+                    simulatorTerminated(tempProcess, responseTime, turnAroundTime);
+                    queueInfo("QUEUE - ADDED", "TERMINATED", 1, tempProcess, 0);
+                    simulatorReadyInfo(tempProcess);
+                    terminatedFlag = 1;
 
-                sem_wait(&disposalDone);
-                /* Removing this lets me maximise parallelism, by letting the simulator and generator run
-                instead of making them wait for the terminator */
+                    sem_post(&disposalSync);
+
+                    sem_wait(&disposalDone);
+                } else {
+                    // If the process HASN'T terminated, add to the end of the ready queue.
+                    addLast(tempProcess, &readyQueues[i]);
+                    readyProcesses++;
+
+                    queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, 0);
+                    simulatorReadyInfo(tempProcess);
+
+                    if (terminatedFlag == 1) {
+                        terminatedFlag = 0;
+                        sem_post(&sync1);
+                        sem_post(&empty);
+                        break;
+                    }
+                }
             }
-            else{
-                // If the process HASN'T terminated, add to the end of the ready queue.
-                addLast(tempProcess,&readyQueue);
-                readyProcesses++;
-
-                queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess);
-                simulatorReadyInfo(tempProcess);
-            }
-
-            if(terminatedFlag == 1){
-                terminatedFlag = 0;
-                sem_post(&sync1);
-                sem_post(&empty);
+            if (processesTerminated == NUMBER_OF_PROCESSES) {
                 break;
             }
-
         }
-        if(processesTerminated==NUMBER_OF_PROCESSES){
-            break;
-        }
+        printf("SIMULATOR: Finished\n");
     }
-    printf("SIMULATOR: Finished\n");
 }
+
 
 
 void * processTerminator(void* p){
@@ -185,7 +198,7 @@ void * processTerminator(void* p){
             tempProcess = removeFirst(&terminatedQueue);
             processesTerminated++;
 
-            queueInfo("QUEUE - REMOVED","TERMINATED",1,tempProcess);
+            queueInfo("QUEUE - REMOVED","TERMINATED",1,tempProcess,0);
             terminationInfo(tempProcess,processesTerminated);
 
             returnToPool(tempProcess->iPID);
@@ -193,13 +206,11 @@ void * processTerminator(void* p){
             destroyProcess(tempProcess);
         }
 
-        /* Removing this lets me maximise parallelism, by letting the simulator and generator run
-         instead of making them wait for the terminator */
        sem_post(&disposalDone);
     }
     finalTerminationInfo();
     //Gets out of while loop in process simulator.
-
+    sem_post(&full);
 }
 
 void processInfo(char* event, Process* process) {
@@ -207,14 +218,20 @@ void processInfo(char* event, Process* process) {
            event, process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
 }
 
-void queueInfo(char* event, char* status, int size, Process* process){
-    printf("%s - [Queue = %s, Size = %d, PID = %d, Priority = %d]\n",
-           event, status, size, process->iPID, process->iPriority);
+void queueInfo(char* event, char* status, int size, Process* process, int specifyPriority){
+    if (specifyPriority == 0 ) {
+        printf("%s - [Queue = %s, Size = %d, PID = %d, Priority = %d]\n",
+               event, status, size, process->iPID, process->iPriority);
+    }
+    else{
+        printf("%s - [Queue = %s%d, Size = %d, PID = %d, Priority = %d]\n",
+               event, status, process->iPriority ,size, process->iPID, process->iPriority);
+    }
 }
 
-void simulatorInfo(Process* process){
-    printf("SIMULATOR - CPU 0: RR [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-           process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
+void simulatorInfo(Process* process,char * scheduling){
+    printf("SIMULATOR - CPU 0: %s [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+           scheduling,process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
 }
 
 void simulatorReadyInfo(Process* process) {

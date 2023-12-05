@@ -18,7 +18,7 @@ void finalTerminationInfo();
 
 sem_t empty,full,sync1,disposalSync,disposalDone;
 
-LinkedList readyQueue = LINKED_LIST_INITIALIZER;
+LinkedList readyQueues[NUMBER_OF_PRIORITY_LEVELS] = {LINKED_LIST_INITIALIZER};
 LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 
 int totalResponseTime = 0;
@@ -50,7 +50,6 @@ void returnToPool(int pid){
     processTable[pid].active = 0;
     processTable[pid].process = NULL;
 }
-
 int main(){
     pthread_t pGenerator, pRunner, pTerminator;
 
@@ -195,7 +194,7 @@ void * processTerminator(void* p){
 
         /* Removing this lets me maximise parallelism, by letting the simulator and generator run
          instead of making them wait for the terminator */
-       sem_post(&disposalDone);
+        sem_post(&disposalDone);
     }
     finalTerminationInfo();
     //Gets out of while loop in process simulator.
@@ -231,8 +230,8 @@ void terminationInfo(Process* process, int counter){
            counter, process->iPID, process->iPriority);
 }
 
-void finalTerminationInfo(){
+void finalTerminationInfo() {
     printf("TERMINATION DAEMON: Finished\n");
     printf("TERMINATION DAEMON: [Average Response Time = %ld, Average Turn Around Time = %ld]\n",
-           totalResponseTime/NUMBER_OF_PROCESSES, totalTurnAroundTime/NUMBER_OF_PROCESSES);
+           totalResponseTime / NUMBER_OF_PROCESSES, totalTurnAroundTime / NUMBER_OF_PROCESSES);
 }
