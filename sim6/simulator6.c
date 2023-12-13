@@ -19,19 +19,18 @@ void boosterCreated();
 void boosterInfo(Process* process);
 
 
-sem_t empty,full,sync1,disposalSync,disposalDone;
+sem_t empty, full, sync1, disposalSync, disposalDone;
 
 LinkedList readyQueues[NUMBER_OF_PRIORITY_LEVELS] = {LINKED_LIST_INITIALIZER};
+LinkedList ioQueues[NUMBER_OF_IO_DEVICES] = {LINKED_LIST_INITIALIZER};
 LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 
-int totalResponseTime = 0;
-int totalTurnAroundTime = 0;
-int boosterActive = 1;
+int totalResponseTime = 0, totalTurnAroundTime = 0;
 int processesTerminated = 0, readyProcesses = 0;
 int processesLeftToGenerate = NUMBER_OF_PROCESSES;
+int boosterActive = 1;
 
 #define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
-#define BOOST_THRESHOLD 0
 
 typedef struct {
     int active;
@@ -40,19 +39,6 @@ typedef struct {
 
 ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
-int getPidFromPool(){
-    for(int i=0; i<MAX_CONCURRENT_PROCESSES;i++){
-        if( processTable[i].active == 0 ){
-            processTable[i].active = 1;
-            return i;
-        }
-    } return -1;
-}
-
-void returnToPool(int pid){
-    processTable[pid].active = 0;
-    processTable[pid].process = NULL;
-}
 
 int main(){
     pthread_t pGenerator, pRunner, pTerminator, pBooster;
@@ -72,13 +58,6 @@ int main(){
     pthread_join(pRunner, NULL);
     pthread_join(pTerminator, NULL);
     pthread_join(pBooster, NULL);
-}
-
-int shouldBoost(Process* process) {
-    // Implement your logic to decide if the process should be boosted
-    // For example, checking if it has been waiting for a certain time
-//    return process->oLastTimeRunning.tv_sec > BOOST_THRESHOLD;
-    return 1;
 }
 
 void * boosterDaemon( void * p){
@@ -111,6 +90,21 @@ void * boosterDaemon( void * p){
     return NULL;
 }
 
+int getPidFromPool(){
+    for(int i=0; i<MAX_CONCURRENT_PROCESSES;i++){
+        if( processTable[i].active == 0 ){
+            processTable[i].active = 1;
+            return i;
+        }
+    } return -1;
+}
+
+void returnToPool(int pid){
+    processTable[pid].active = 0;
+    processTable[pid].process = NULL;
+}
+
+
 void * processGenerator( void * p){
     //loop initialises linked list that represents the ready queue with processes.
     Process *tempProcess;
@@ -141,7 +135,8 @@ void * processGenerator( void * p){
             processesLeftToGenerate--;
             // Add to relevant ready queue
             addLast(tempProcess, &(readyQueues[tempProcess->iPriority]));
-            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, tempProcess->iPriority);
+            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess,
+                      tempProcess->iPriority);
 
             processInfo("GENERATOR - ADMITTED",tempProcess);
         }
@@ -185,11 +180,11 @@ void * processRunner( void* p){
 
             // Run the process depending on priority.
             if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
-                runPreemptiveProcess(tempProcess, false);
+                runPreemptiveProcess(tempProcess, true);
                 simulatorInfo(tempProcess, "RR");
             } else {
                 while (tempProcess->iRemainingBurstTime != 0) {
-                    runNonPreemptiveProcess(tempProcess, false);
+                    runNonPreemptiveProcess(tempProcess, true);
                 }
                 simulatorInfo(tempProcess, "FCFS");
                 //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);

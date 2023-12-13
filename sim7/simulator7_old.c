@@ -18,7 +18,6 @@ void simulatorTerminated(Process* process, int responseTime, int turnaroundTime)
 void finalTerminationInfo();
 void boosterCreated();
 void boosterInfo(Process* process);
-void ioDaemonInfo(Process* process);
 void ioInfo(Process* process);
 
 
@@ -31,7 +30,6 @@ LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 int totalResponseTime = 0, totalTurnAroundTime = 0;
 int processesTerminated = 0, readyProcesses = 0, blockedProcesses = 0;
 int processesLeftToGenerate = NUMBER_OF_PROCESSES;
-int boosterActive = 1;
 
 #define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
 
@@ -44,7 +42,7 @@ ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
 
 int main(){
-    pthread_t pGenerator, pRunner, pTerminator, pBooster ,pioDaemon;
+    pthread_t pGenerator, pRunner, pTerminator, pBooster, pIoDaemon;
 
     sem_init(&sync1, 0, 1);
     sem_init(&full, 0, 0);
@@ -56,27 +54,23 @@ int main(){
     pthread_create((&pRunner), NULL, processRunner, NULL);
     pthread_create((&pTerminator), NULL, processTerminator, NULL);
     pthread_create((&pBooster), NULL, boosterDaemon, NULL);
-    pthread_create((&pioDaemon), NULL, ioDaemon, NULL);
-
+    pthread_create((&pIoDaemon), NULL, ioDaemon, NULL);
 
     pthread_join(pGenerator, NULL);
     pthread_join(pRunner, NULL);
     pthread_join(pTerminator, NULL);
     pthread_join(pBooster, NULL);
-    pthread_join(pioDaemon, NULL);
+    pthread_join(pIoDaemon, NULL);
 
 }
 
 void * boosterDaemon( void * p){
     boosterCreated();
-    while(boosterActive) {
-        printf("booster active\n");
+    while(processesTerminated!=NUMBER_OF_PROCESSES) {
         // Wait for interval
         usleep(BOOST_INTERVAL *1000);
         // Wait for sync
-
         sem_wait(&sync1);
-
         for(int i = NUMBER_OF_PRIORITY_LEVELS/2 + 1; i < NUMBER_OF_PRIORITY_LEVELS; i++){
             Element* current = getHead(readyQueues[i]);
             while(current != NULL){
@@ -103,15 +97,14 @@ void *ioDaemon(void *p) {
         usleep(IO_DAEMON_INTERVAL * 1000);
         // Ensure mutual exclusion
         sem_wait(&sync1);
-
-        printf("ENTERING THE IO DAEMON \n");
+        printf("ENTERING THE IO DAEMON.\n");
         // Process each I/O queue
         for (int i = 0; i < NUMBER_OF_IO_DEVICES; i++) {
             Element* current = getHead(ioQueues[i]);
             while(current != NULL){
                 Element* next = current->pNext;
                 Process* process = current->pData;
-                ioDaemonInfo(process);
+                printf("CLEARING PID:%d\n",process->iPID);
                 // Remove from corresponding I/O queue
                 removeFirst(&ioQueues[i]);
                 blockedProcesses--;
@@ -122,9 +115,6 @@ void *ioDaemon(void *p) {
             }
         }
         sem_post(&sync1);
-        if(processesLeftToGenerate == 0 ){
-            sem_post(&full);
-        }
     }
     return NULL;
 }
@@ -143,51 +133,6 @@ void returnToPool(int pid){
     processTable[pid].process = NULL;
 }
 
-
-//void * processGenerator(void *p) {
-//    Process *tempProcess;
-//    int idTracker = 0;
-//
-//    while(processesLeftToGenerate > 0) {
-//        sem_wait(&empty);
-//        sem_wait(&sync1);
-//
-//        int availableSlots = MAX_CONCURRENT_PROCESSES - readyProcesses;
-//        int numToGenerate = (processesLeftToGenerate < availableSlots) ? processesLeftToGenerate : availableSlots;
-//
-//        printf("\nGenerator Checkpoint: Ready = %d, Blocked = 0, Terminated = %d, Max Concurrent = %d\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES);
-//        printf("numTogen: %d\n\n", numToGenerate);
-//
-//        for(int i = 0; i < numToGenerate; i++) {
-//            int pid = getPidFromPool();
-//            if(pid == -1) {
-//                printf("ERROR - PID POOL EMPTY\n");
-//                break;
-//            }
-//
-//            tempProcess = generateProcess(pid);
-//            processTable[pid].process = tempProcess;
-//            processInfo("GENERATOR - CREATED", tempProcess);
-//            processInfo("GENERATOR - ADDED TO TABLE", tempProcess);
-//
-//            idTracker++;
-//            readyProcesses++;
-//            processesLeftToGenerate--;
-//
-//            addLast(tempProcess, &(readyQueues[tempProcess->iPriority]));
-//            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, tempProcess->iPriority);
-//            processInfo("GENERATOR - ADMITTED", tempProcess);
-//        }
-//
-//        sem_post(&sync1);
-//        sem_post(&full);
-//    }
-//
-//    printf("GENERATOR: Finished\n");
-//    return NULL;
-//}
-
-
 void *processGenerator(void *p) {
     Process *tempProcess;
     int idTracker = 0;
@@ -198,7 +143,7 @@ void *processGenerator(void *p) {
 
         int numToGenerate = (processesLeftToGenerate < MAX_CONCURRENT_PROCESSES) ? processesLeftToGenerate : MAX_CONCURRENT_PROCESSES;
 
-        printf("\nGenerator Checkpoint: Ready = %d, Terminated = %d, Max Concurrent = %d, To Generate = %d\n\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES, numToGenerate);
+        printf("\nGenerator Checkpoint: Ready = %d, Terminated = %d, Max Concurrent = %d, To Generate = %d\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES, numToGenerate);
 
         while (readyProcesses < numToGenerate) {
             int pid = getPidFromPool();
@@ -229,95 +174,107 @@ void *processGenerator(void *p) {
 }
 
 
+
 void * processRunner( void* p){
     Process *tempProcess;
     long responseTime, turnAroundTime;
-    int exitFlag = 1;
+    int terminatedFlag = 1, blockedFlag = 1;
+    int waitForIO = 0;
     int i = 0;
 
     while(1){
         // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
-        printf("waiting for full semaphore\n");
         sem_wait(&full);
-        printf("waiting for sync semaphore\n");
         sem_wait(&sync1);
-        printf("got past both semaphores\n");
         while(1){
-            printf("Inside Simulator\n");
-
             /* If no process has terminated in the previous iteration
                then we know there won't be a higher priority process waiting */
             // not for sim6
+            waitForIO = 0;
+            i = 0;
             while(getHead(readyQueues[i]) == NULL){
                 // This finds the highest priority ready queue to simulate from
+                printf("Checking %d\n",i);
                 i++;
                 if(i >= NUMBER_OF_PRIORITY_LEVELS){
-                    printf("exceeded num of priority levels");
-                    exit(1);
+                    printf("REACHED %d : ERROR - PRIORITY LEVELS BEYOND MAX\n",i);
+                    waitForIO = 1;
+                    break;
                 }
             }
-            exitFlag = 0;
 
-            // Retrieve the first process in the ready queue
-            tempProcess = ((Process *)(getHead(readyQueues[i])->pData));
-            removeFirst(&readyQueues[i]);
-            queueInfo("QUEUE - REMOVED", "READY", readyProcesses, tempProcess, i);
-            readyProcesses--;
+            if(!waitForIO){
+                terminatedFlag = 0;
+                blockedFlag = 0;
 
 
-            // Run the process depending on priority.
-            if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
-                runPreemptiveProcess(tempProcess, true);
-                simulatorInfo(tempProcess, "RR");
-            } else {
-                while (tempProcess->iRemainingBurstTime != 0) {
-                    runNonPreemptiveProcess(tempProcess, true);
+                // Retrieve the first process in the ready queue
+                tempProcess = ((Process *)(getHead(readyQueues[i])->pData));
+                removeFirst(&readyQueues[i]);
+                queueInfo("QUEUE - REMOVED", "READY", readyProcesses, tempProcess, i);
+                readyProcesses--;
+
+
+                // Run the process depending on priority.
+                if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
+                    runPreemptiveProcess(tempProcess, true);
+                    simulatorInfo(tempProcess, "RR");
+                } else {
+                    while (tempProcess->iRemainingBurstTime != 0) {
+                        runNonPreemptiveProcess(tempProcess, true);
+                        if(tempProcess->iState == BLOCKED) {
+                            break;
+                        }
+                    }
+                    if(tempProcess->iState != BLOCKED) {
+                        simulatorInfo(tempProcess, "FCFS");
+                    }
+                    //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);
                 }
-                simulatorInfo(tempProcess, "FCFS");
-                //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);
+
+                // Now, check if terminated or not.
+                if(tempProcess->iState == TERMINATED) {
+                    // If the process terminates, add to the terminated queue.
+                    addLast(tempProcess, &terminatedQueue);
+                    // Calculate metrics
+                    responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
+                                                               tempProcess->oFirstTimeRunning);
+                    turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
+                                                                 tempProcess->oLastTimeRunning);
+                    totalResponseTime += responseTime;
+                    totalTurnAroundTime += turnAroundTime;
+                    // Display info
+                    simulatorTerminated(tempProcess, responseTime, turnAroundTime);
+                    queueInfo("QUEUE - ADDED", "TERMINATED", 1, tempProcess, 0);
+                    simulatorReadyInfo(tempProcess);
+                    // Set the terminated flag
+                    terminatedFlag = 1;
+
+                    sem_post(&disposalSync);
+                    sem_wait(&disposalDone);
+                }
+                else if(tempProcess->iState == BLOCKED) {
+                    addLast(tempProcess, &ioQueues[tempProcess->iDeviceID]);
+                    blockedProcesses++;
+                    ioInfo(tempProcess);
+                    queueInfo("QUEUE - ADDED","I/O",blockedProcesses,tempProcess,
+                              tempProcess->iPriority);
+                    blockedFlag = 1;
+                }
+                else{
+                    // If the process hasn't terminated, add to the end of the ready queue.
+                    addLast(tempProcess,&readyQueues[i]);
+                    readyProcesses++;
+                    // Display info
+                    queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess, 0);
+                    simulatorReadyInfo(tempProcess);
+
+                }
             }
 
-            // Now, check if terminated or not.
-            if(tempProcess->iState == TERMINATED) {
-                // If the process terminates, add to the terminated queue.
-                addLast(tempProcess, &terminatedQueue);
-                // Calculate metrics
-                responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
-                                                           tempProcess->oFirstTimeRunning);
-                turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
-                                                             tempProcess->oLastTimeRunning);
-                totalResponseTime += responseTime;
-                totalTurnAroundTime += turnAroundTime;
-                // Display info
-                simulatorTerminated(tempProcess, responseTime, turnAroundTime);
-                queueInfo("QUEUE - ADDED", "TERMINATED", 1, tempProcess, 0);
-                simulatorReadyInfo(tempProcess);
-                // Set the terminated flag
-                exitFlag = 1;
-
-                sem_post(&disposalSync);
-                sem_wait(&disposalDone);
-            }
-            else if(tempProcess->iState == BLOCKED) {
-                addLast(tempProcess, &ioQueues[tempProcess->iDeviceID]);
-                blockedProcesses++;
-                ioInfo(tempProcess);
-                queueInfo("QUEUE - ADDED","I/O",blockedProcesses,tempProcess,
-                          tempProcess->iPriority);
-                exitFlag = 1;
-            }
-            else{
-                // If the process hasn't terminated, add to the end of the ready queue.
-                addLast(tempProcess,&readyQueues[i]);
-                readyProcesses++;
-                // Display info
-                queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess, 0);
-                simulatorReadyInfo(tempProcess);
-            }
-
-            if(exitFlag == 1){
+            if(terminatedFlag == 1 || blockedFlag == 1){
                 // Check if we need to break the loop to attend to a possibly higher priority process
-                i = 0;
+                printf("A process has terminated:)\n");
                 // Resetting 'i' ensures we start from ready queue 0
                 sem_post(&sync1);
                 sem_post(&empty);
@@ -354,7 +311,6 @@ void * processTerminator(void* p){
         sem_post(&disposalDone);
     }
     // When all processes have terminated
-    boosterActive = 0;
     finalTerminationInfo();
     return NULL;
 }
@@ -408,10 +364,6 @@ void boosterInfo(Process* process){
     printf("BOOSTER DAEMON: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]"
            " => Boosted to Level %d\n", process->iPID, process->iPriority, process->iBurstTime,
            process->iRemainingBurstTime, NUMBER_OF_PRIORITY_LEVELS/2);
-}
-
-void ioDaemonInfo(Process* process){
-    printf("I/O DAEMON - UNBLOCKED: [PID = %d, Priority = %d]\n",process->iPID,process->iPriority);
 }
 
 void ioInfo(Process* process){
