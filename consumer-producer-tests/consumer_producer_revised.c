@@ -1,5 +1,5 @@
-#include "linkedlist.c"
-#include "coursework.c"
+#include "../linkedlist.c"
+#include "../coursework.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>

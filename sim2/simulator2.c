@@ -1,5 +1,5 @@
-#include "linkedlist.c"
-#include "coursework.c"
+#include "../linkedlist.c"
+#include "../coursework.c"
 #include <stdio.h>
 #define NUMBER_OF_PROCESSES 5
 

@@ -38,7 +38,7 @@ void runProcess(Process * pProcess, int iBurstTime, bool bSimulateIO) {
     gettimeofday(&pProcess->oFirstTimeRunning, NULL);
   }
   if(bSimulateIO && rand() % 10 == 1) {
-    pProcess->iState = BLOCKED;noten
+    pProcess->iState = BLOCKED;
     pProcess->iDeviceID = rand() % NUMBER_OF_IO_DEVICES;
     return;
   }

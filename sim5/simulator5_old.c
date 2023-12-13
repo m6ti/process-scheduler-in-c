@@ -1,5 +1,5 @@
-#include "linkedlist.c"
-#include "coursework.c"
+#include "../linkedlist.c"
+#include "../coursework.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -17,12 +17,8 @@ void simulatorTerminated(Process* process, int responseTime, int turnaroundTime)
 void finalTerminationInfo();
 
 sem_t empty,full,sync1,disposalSync,disposalDone;
-//sem_t disposalDone;
 
 LinkedList readyQueues[NUMBER_OF_PRIORITY_LEVELS] = {LINKED_LIST_INITIALIZER};
-
-
-
 LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 
 int totalResponseTime = 0;
@@ -37,6 +33,7 @@ typedef struct {
     int active;
     Process *process;
 } ProcessTableEntry;
+
 ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
 int getPidFromPool(){
@@ -45,8 +42,7 @@ int getPidFromPool(){
             processTable[i].active = 1;
             return i;
         }
-    }
-    return -1;
+    } return -1;
 }
 
 void returnToPool(int pid){
@@ -88,21 +84,19 @@ void * processGenerator( void * p){
         else
             smaller = MAX_CONCURRENT_PROCESSES;
         while(readyProcesses != smaller) {
+            // Get process ID from the pool
             int pid = getPidFromPool();
             if(pid == -1)
                 exit(1);
-
+            // Generate a process with the PID and add to table.
             tempProcess = generateProcess(pid);
             processTable[pid].process = tempProcess;
-
-//            tempProcess = generateProcess(idTracker);
-//            int pid = getPidFromPool();
-
             processInfo("GENERATOR - CREATED",tempProcess);
-
+            // Set relevant variables
             idTracker++;
             readyProcesses++;
             processesLeftToGenerate--;
+            // Add to relevant ready queue
             addLast(tempProcess, &(readyQueues[tempProcess->iPriority]));
             queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, 0);
 
@@ -112,6 +106,7 @@ void * processGenerator( void * p){
         sem_post(&full);
     }
     printf("GENERATOR: Finished\n");
+    return NULL;
 }
 
 
@@ -121,6 +116,7 @@ void * processRunner( void* p) {
     int terminatedFlag = 0;
 
     while (1) {
+        // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
         while (1) {
             for(int i=0; i< NUMBER_OF_PRIORITY_LEVELS; i++){
 
@@ -132,7 +128,7 @@ void * processRunner( void* p) {
                 removeFirst(&readyQueues[i]);
                 queueInfo("QUEUE - REMOVED", "READY", readyProcesses, tempProcess, 0);
                 readyProcesses--;
-
+                // Run the process depending on priority.
                 if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
                     runPreemptiveProcess(tempProcess, false);
                     simulatorInfo(tempProcess, "RR");
@@ -146,27 +142,30 @@ void * processRunner( void* p) {
                 if (tempProcess->iState == TERMINATED) {
                     // If the process terminates, add to the terminated queue.
                     addLast(tempProcess, &terminatedQueue);
-
+                    // Calculate metrics
                     responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
                                                                tempProcess->oFirstTimeRunning);
                     turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
                                                                  tempProcess->oLastTimeRunning);
                     totalResponseTime += responseTime;
                     totalTurnAroundTime += turnAroundTime;
+                    // Display info
 
                     simulatorTerminated(tempProcess, responseTime, turnAroundTime);
                     queueInfo("QUEUE - ADDED", "TERMINATED", 1, tempProcess, 0);
                     simulatorReadyInfo(tempProcess);
+                    // Set the terminated flag
                     terminatedFlag = 1;
 
                     sem_post(&disposalSync);
-
                     sem_wait(&disposalDone);
-                } else {
-                    // If the process HASN'T terminated, add to the end of the ready queue.
+                }
+                    // BLOCKED?!?!?!?!?
+                else {
+                    // If the process hasn't terminated, add to the end of the ready queue.
                     addLast(tempProcess, &readyQueues[i]);
                     readyProcesses++;
-
+                    // Display info
                     queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, 0);
                     simulatorReadyInfo(tempProcess);
 

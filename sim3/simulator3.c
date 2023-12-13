@@ -1,5 +1,5 @@
-#include "linkedlist.c"
-#include "coursework.c"
+#include "../linkedlist.c"
+#include "../coursework.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -9,17 +9,8 @@ void * processGenerator(void* p);
 void * processRunner(void* p);
 void * processTerminator(void* p);
 
-//        if(processesLeftToGenerate<MAX_CONCURRENT_PROCESSES){
-//            smaller = processesLeftToGenerate;
-//        }else{
-//            smaller = MAX_CONCURRENT_PROCESSES;
-//        }
-//
-//        for(int i = 0; i < smaller; i++){
-
 sem_t
     empty,full,sync1,disposalSync,disposalDone;
-//    delay_consumer,sync1,syncTerminator,delayTerminator;
 
 LinkedList readyQueue = LINKED_LIST_INITIALIZER, terminatedQueue = LINKED_LIST_INITIALIZER;
 
