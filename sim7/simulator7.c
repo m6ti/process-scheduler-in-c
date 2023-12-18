@@ -237,14 +237,13 @@ void * processRunner( void* p){
 
     while(1){
         // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
-        printf("waiting for full semaphore\n");
+//        printf("waiting for full semaphore\n");
         sem_wait(&full);
-        printf("waiting for sync semaphore\n");
+//        printf("waiting for sync semaphore\n");
         sem_wait(&sync1);
-        printf("got past both semaphores\n");
+//        printf("got past both semaphores\n");
         while(1){
-            printf("Inside Simulator\n");
-
+//            printf("Inside Simulator\n");
             /* If no process has terminated in the previous iteration
                then we know there won't be a higher priority process waiting */
             // not for sim6
@@ -252,7 +251,7 @@ void * processRunner( void* p){
                 // This finds the highest priority ready queue to simulate from
                 i++;
                 if(i >= NUMBER_OF_PRIORITY_LEVELS){
-                    printf("exceeded num of priority levels");
+//                    printf("exceeded num of priority levels");
                     exit(1);
                 }
             }
