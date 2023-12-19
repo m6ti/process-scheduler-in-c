@@ -44,19 +44,13 @@ void * processGenerator( void * p){
     int idTracker = 0, smaller;
 
 
-    while(processesLeftToGenerate!=0){
-//        printf("Waiting in : generator");
-
+    while (processesLeftToGenerate > 0) {
         sem_wait(&empty);
         sem_wait(&sync1);
 
-        //This should run until there is either max num of concurrent processes or if smaller, the number of processes.
-        if(processesLeftToGenerate<MAX_CONCURRENT_PROCESSES)
-            smaller = processesLeftToGenerate;
-        else
-            smaller = MAX_CONCURRENT_PROCESSES;
+        int numToGenerate = (processesLeftToGenerate < MAX_CONCURRENT_PROCESSES) ? processesLeftToGenerate : MAX_CONCURRENT_PROCESSES;
 
-        while(readyProcesses!=smaller) {
+        while (readyProcesses < numToGenerate) {
 
             tempProcess = generateProcess(idTracker);
             idTracker++;

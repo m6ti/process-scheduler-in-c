@@ -33,7 +33,8 @@ ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
 
 int main(){
-    pthread_t pGenerator, pRunner, pTerminator, pBooster ,pioDaemon;
+    pthread_t pGenerator, pTerminator, pBooster ,pioDaemon;
+    pthread_t pRunners[NUMBER_OF_CPUS];
 
     sem_init(&sync1, 0, 1);
     sem_init(&full, 0, 0);
@@ -42,18 +43,21 @@ int main(){
     sem_init(&disposalDone, 0, 0);
 
     pthread_create((&pGenerator), NULL, processGenerator, NULL);
-    pthread_create((&pRunner), NULL, processRunner, NULL);
+    for(int i = 0; i < NUMBER_OF_CPUS; i++){
+        pthread_create((&pRunners[i]), NULL, processRunner, (void *)(intptr_t)i);
+    }
     pthread_create((&pTerminator), NULL, processTerminator, NULL);
     pthread_create((&pBooster), NULL, boosterDaemon, NULL);
     pthread_create((&pioDaemon), NULL, ioDaemon, NULL);
 
 
     pthread_join(pGenerator, NULL);
-    pthread_join(pRunner, NULL);
     pthread_join(pTerminator, NULL);
     pthread_join(pBooster, NULL);
     pthread_join(pioDaemon, NULL);
-
+    for(int i = 0; i < NUMBER_OF_CPUS; i++){
+        pthread_join(pRunners[i], NULL);
+    }
 }
 
 void * boosterDaemon( void * p){
@@ -181,6 +185,7 @@ void *processGenerator(void *p) {
     Process *tempProcess;
     int idTracker = 0;
 
+
     while (processesLeftToGenerate > 0) {
         sem_wait(&empty);
         sem_wait(&sync1);
@@ -223,17 +228,18 @@ void * processRunner( void* p){
     long responseTime, turnAroundTime;
     int exitFlag;
     int i = 0;
+    int cpuId = (int)(intptr_t)p;
 
     while(processesTerminated!=NUMBER_OF_PROCESSES){
         // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
-        printf("waiting for full semaphore\n");
+//        printf("sim %d waiting for full semaphore\n",cpuId);
         sem_wait(&full);
-        printf("waiting for sync semaphore\n");
+//        printf("sim %d waiting for sync semaphore\n",cpuId);
         sem_wait(&sync1);
-        printf("got past both semaphores\n");
+//        printf("sim %d got past both semaphores\n",cpuId);
         exitFlag = 0;
-        while(exitFlag == 0){
-            printf("Inside Simulator\n");
+        while(processesTerminated != NUMBER_OF_PROCESSES && exitFlag == 0){
+//            printf("Inside Simulator\n");
             /* If no process has terminated in the previous iteration
                then we know there won't be a higher priority process waiting */
             // not for sim6
@@ -256,12 +262,12 @@ void * processRunner( void* p){
             // Run the process depending on priority.
             if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
                 runPreemptiveProcess(tempProcess, true);
-                simulatorInfo(tempProcess, "RR");
+                multiSimulatorInfo(tempProcess, "RR",cpuId);
             } else {
                 while (tempProcess->iRemainingBurstTime != 0) {
                     runNonPreemptiveProcess(tempProcess, true);
                 }
-                simulatorInfo(tempProcess, "FCFS");
+                multiSimulatorInfo(tempProcess, "FCFS",cpuId);
                 //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);
             }
 
@@ -302,21 +308,14 @@ void * processRunner( void* p){
                 queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess, 0);
                 simulatorReadyInfo(tempProcess);
             }
-
-
-                // Check if we need to break the loop to attend to a possibly higher priority process
-
-                // Resetting 'i' ensures we start from ready queue 0
         }
         i = 0;
         sem_post(&sync1);
         sem_post(&empty);
     }
-    printf("SIMULATOR: Finished\n");
+    printf("SIMULATOR %d: Finished\n",cpuId);
     return NULL;
 }
-
-
 
 
 void * processTerminator(void* p){
