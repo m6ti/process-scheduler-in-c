@@ -1,6 +1,6 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
-#include "../printutil.c"
+#include "../util.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -9,7 +9,7 @@ void * processGenerator(void* p);
 void * processRunner(void* p);
 void * processTerminator(void* p);
 void * boosterDaemon( void * p);
-void *ioDaemon(void *p);
+void * ioDaemon(void *p);
 
 sem_t empty, full, sync1, disposalSync, disposalDone;
 
@@ -22,17 +22,9 @@ int processesTerminated = 0, readyProcesses = 0, blockedProcesses = 0;
 int processesLeftToGenerate = NUMBER_OF_PROCESSES;
 int boosterActive = 1;
 
-#define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
-
-typedef struct {
-    int active;
-    Process *process;
-} ProcessTableEntry;
-
 ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
-
-int main(){
+int main() {
     pthread_t pGenerator, pTerminator, pBooster ,pioDaemon;
     pthread_t pRunners[NUMBER_OF_CPUS];
 
@@ -60,7 +52,7 @@ int main(){
     }
 }
 
-void * boosterDaemon( void * p){
+void * boosterDaemon( void * p) {
     boosterCreated();
     while(boosterActive) {
         printf("booster active\n");
@@ -96,7 +88,6 @@ void *ioDaemon(void *p) {
         usleep(IO_DAEMON_INTERVAL * 1000);
         // Ensure mutual exclusion
         sem_wait(&sync1);
-
         printf("ENTERING THE IO DAEMON \n");
         // Process each I/O queue
         for (int i = 0; i < NUMBER_OF_IO_DEVICES; i++) {
@@ -116,25 +107,13 @@ void *ioDaemon(void *p) {
         }
         sem_post(&sync1);
         if(processesLeftToGenerate == 0 ){
+            printf("POSTING SEM FULL FROM IODAEMON\n");
             sem_post(&full);
         }
     }
     return NULL;
 }
 
-int getPidFromPool(){
-    for(int i=0; i<MAX_CONCURRENT_PROCESSES;i++){
-        if( processTable[i].active == 0 ){
-            processTable[i].active = 1;
-            return i;
-        }
-    } return -1;
-}
-
-void returnToPool(int pid){
-    processTable[pid].active = 0;
-    processTable[pid].process = NULL;
-}
 
 
 //void * processGenerator(void *p) {
@@ -190,12 +169,13 @@ void *processGenerator(void *p) {
         sem_wait(&empty);
         sem_wait(&sync1);
 
-        int numToGenerate = (processesLeftToGenerate < MAX_CONCURRENT_PROCESSES) ? processesLeftToGenerate : MAX_CONCURRENT_PROCESSES;
+        int generateGoalProvisional = calculate_processes_to_generate(MAX_CONCURRENT_PROCESSES,NUMBER_OF_PROCESSES,
+                                                                      readyProcesses,readyProcesses+processesTerminated);
+        printf("\nGenerator Checkpoint: Ready = %d, Terminated = %d, Max Concurrent = %d, GenerateGoal = %d\n\n",
+               readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES, generateGoalProvisional);
 
-        printf("\nGenerator Checkpoint: Ready = %d, Terminated = %d, Max Concurrent = %d, To Generate = %d\n\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES, numToGenerate);
-
-        while (readyProcesses < numToGenerate) {
-            int pid = getPidFromPool();
+        for(int i = 0; i < generateGoalProvisional; i++) {
+            int pid = getPidFromPool(processTable);
             if (pid == -1) {
                 printf("ERROR - PID POOL EMPTY\n");
                 break;
@@ -232,11 +212,11 @@ void * processRunner( void* p){
 
     while(processesTerminated!=NUMBER_OF_PROCESSES){
         // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
-//        printf("sim %d waiting for full semaphore\n",cpuId);
+        printf("sim %d waiting for full semaphore\n",cpuId);
         sem_wait(&full);
-//        printf("sim %d waiting for sync semaphore\n",cpuId);
+        printf("sim %d waiting for sync semaphore\n",cpuId);
         sem_wait(&sync1);
-//        printf("sim %d got past both semaphores\n",cpuId);
+        printf("sim %d got past both semaphores\n",cpuId);
         exitFlag = 0;
         while(processesTerminated != NUMBER_OF_PROCESSES && exitFlag == 0){
 //            printf("Inside Simulator\n");
@@ -291,6 +271,7 @@ void * processRunner( void* p){
 
                 sem_post(&disposalSync);
                 sem_wait(&disposalDone);
+                printf("process left to gen: %d\n",processesLeftToGenerate);
             }
             else if(tempProcess->iState == BLOCKED) {
                 addLast(tempProcess, &ioQueues[tempProcess->iDeviceID]);
@@ -307,6 +288,7 @@ void * processRunner( void* p){
                 // Display info
                 queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess, 0);
                 simulatorReadyInfo(tempProcess);
+                exitFlag = 1;
             }
         }
         i = 0;
@@ -314,6 +296,8 @@ void * processRunner( void* p){
         sem_post(&empty);
     }
     printf("SIMULATOR %d: Finished\n",cpuId);
+    sem_post(&full);
+
     return NULL;
 }
 
@@ -332,7 +316,7 @@ void * processTerminator(void* p){
             queueInfo("QUEUE - REMOVED","TERMINATED",1,tempProcess,0);
             terminationInfo(tempProcess,processesTerminated);
             // Return PID to enable reuse of ids
-            returnToPool(tempProcess->iPID);
+            returnToPool(tempProcess->iPID,processTable);
             destroyProcess(tempProcess);
         }
         sem_post(&disposalDone);

@@ -1,6 +1,6 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
-#include "../printutil.c"
+#include "../util.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -9,7 +9,7 @@ void * processGenerator(void* p);
 void * processRunner(void* p);
 void * processTerminator(void* p);
 void * boosterDaemon( void * p);
-void *ioDaemon(void *p);
+void * ioDaemon(void *p);
 
 sem_t empty, full, sync1, disposalSync, disposalDone;
 
@@ -21,13 +21,6 @@ int totalResponseTime = 0, totalTurnAroundTime = 0;
 int processesTerminated = 0, readyProcesses = 0, blockedProcesses = 0;
 int processesLeftToGenerate = NUMBER_OF_PROCESSES;
 int boosterActive = 1;
-
-#define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
-
-typedef struct {
-    int active;
-    Process *process;
-} ProcessTableEntry;
 
 ProcessTableEntry processTable[SIZE_OF_PROCESS_TABLE];
 
@@ -118,65 +111,6 @@ void *ioDaemon(void *p) {
     return NULL;
 }
 
-int getPidFromPool(){
-    for(int i=0; i<MAX_CONCURRENT_PROCESSES;i++){
-        if( processTable[i].active == 0 ){
-            processTable[i].active = 1;
-            return i;
-        }
-    } return -1;
-}
-
-void returnToPool(int pid){
-    processTable[pid].active = 0;
-    processTable[pid].process = NULL;
-}
-
-
-//void * processGenerator(void *p) {
-//    Process *tempProcess;
-//    int idTracker = 0;
-//
-//    while(processesLeftToGenerate > 0) {
-//        sem_wait(&empty);
-//        sem_wait(&sync1);
-//
-//        int availableSlots = MAX_CONCURRENT_PROCESSES - readyProcesses;
-//        int numToGenerate = (processesLeftToGenerate < availableSlots) ? processesLeftToGenerate : availableSlots;
-//
-//        printf("\nGenerator Checkpoint: Ready = %d, Blocked = 0, Terminated = %d, Max Concurrent = %d\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES);
-//        printf("numTogen: %d\n\n", numToGenerate);
-//
-//        for(int i = 0; i < numToGenerate; i++) {
-//            int pid = getPidFromPool();
-//            if(pid == -1) {
-//                printf("ERROR - PID POOL EMPTY\n");
-//                break;
-//            }
-//
-//            tempProcess = generateProcess(pid);
-//            processTable[pid].process = tempProcess;
-//            processInfo("GENERATOR - CREATED", tempProcess);
-//            processInfo("GENERATOR - ADDED TO TABLE", tempProcess);
-//
-//            idTracker++;
-//            readyProcesses++;
-//            processesLeftToGenerate--;
-//
-//            addLast(tempProcess, &(readyQueues[tempProcess->iPriority]));
-//            queueInfo("QUEUE - ADDED", "READY", readyProcesses, tempProcess, tempProcess->iPriority);
-//            processInfo("GENERATOR - ADMITTED", tempProcess);
-//        }
-//
-//        sem_post(&sync1);
-//        sem_post(&full);
-//    }
-//
-//    printf("GENERATOR: Finished\n");
-//    return NULL;
-//}
-
-
 void *processGenerator(void *p) {
     Process *tempProcess;
     int idTracker = 0;
@@ -190,7 +124,7 @@ void *processGenerator(void *p) {
         printf("\nGenerator Checkpoint: Ready = %d, Terminated = %d, Max Concurrent = %d, To Generate = %d\n\n", readyProcesses, processesTerminated, MAX_CONCURRENT_PROCESSES, numToGenerate);
 
         while (readyProcesses < numToGenerate) {
-            int pid = getPidFromPool();
+            int pid = getPidFromPool(processTable);
             if (pid == -1) {
                 printf("ERROR - PID POOL EMPTY\n");
                 break;
@@ -256,12 +190,12 @@ void * processRunner( void* p){
             // Run the process depending on priority.
             if (tempProcess->iPriority > NUMBER_OF_PRIORITY_LEVELS / 2) {
                 runPreemptiveProcess(tempProcess, true);
-                simulatorInfo(tempProcess, "RR");
+                simulatorInfo(tempProcess, "RR",0);
             } else {
                 while (tempProcess->iRemainingBurstTime != 0) {
                     runNonPreemptiveProcess(tempProcess, true);
                 }
-                simulatorInfo(tempProcess, "FCFS");
+                simulatorInfo(tempProcess, "FCFS",0);
                 //                printf("%d %ds\n",1==1,tempProcess->iState==TERMINATED);
             }
 
@@ -333,7 +267,7 @@ void * processTerminator(void* p){
             queueInfo("QUEUE - REMOVED","TERMINATED",1,tempProcess,0);
             terminationInfo(tempProcess,processesTerminated);
             // Return PID to enable reuse of ids
-            returnToPool(tempProcess->iPID);
+            returnToPool(tempProcess->iPID,processTable);
             destroyProcess(tempProcess);
         }
         sem_post(&disposalDone);

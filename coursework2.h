@@ -7,11 +7,11 @@
 
 typedef enum {false, true} bool;
 
-#define NUMBER_OF_PROCESSES   10 //number of processes to simulate
-#define MAX_CONCURRENT_PROCESSES    5 //max number of processes in the system at any one point in time
+#define NUMBER_OF_PROCESSES   100 //number of processes to simulate
+#define MAX_CONCURRENT_PROCESSES    32 //max number of processes in the system at any one point in time
 #define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES // number of processes in the process table
 #define NUMBER_OF_PRIORITY_LEVELS 16
-#define NUMBER_OF_CPUS 3  // number of CPU emulators
+#define NUMBER_OF_CPUS 2  // number of CPU emulators
 #define NUMBER_OF_QUEUE_SETS 1  // number of CPU emulators
 #define NUMBER_OF_IO_DEVICES 2
 
@@ -27,19 +27,19 @@ typedef enum {false, true} bool;
 #define IO_DAEMON_INTERVAL 50
 #define LOAD_BALANCING_INTERVAL 50
 
-// struct representing a (simplified) process control block 
+// struct representing a (simplified) process control block
 typedef struct {
-  struct timeval oTimeCreated;
-  struct timeval oFirstTimeRunning;
-  struct timeval oLastTimeRunning;
+    struct timeval oTimeCreated;
+    struct timeval oFirstTimeRunning;
+    struct timeval oLastTimeRunning;
 
-  int iPID; // process identifier, assumed to be positive int up to MAX_VALUE
-  int iPriority;
-  int iBurstTime; // Initial CPU time required by the process 
-  int iRemainingBurstTime; // CPU time left for the process
-  int iDeviceID;    
-  
-  int iState; // process state 
+    int iPID; // process identifier, assumed to be positive int up to MAX_VALUE
+    int iPriority;
+    int iBurstTime; // Initial CPU time required by the process
+    int iRemainingBurstTime; // CPU time left for the process
+    int iDeviceID;
+
+    int iState; // process state
 } Process;
 
 // creates a process control block in dynamic memory. initialises it, and returns it

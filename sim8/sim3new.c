@@ -1,6 +1,6 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
-#include "../printutil.c"
+#include "../util.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
