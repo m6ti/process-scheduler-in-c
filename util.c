@@ -12,11 +12,12 @@ void ioDaemonInfo(Process* process);
 void ioInfo(Process* process);
 void queueSetInfo(char* event, int size, Process* process, int cpuIndex);
 int switchProcessor(int cpuIndex);
-int findSmallestQueue(int * queueSizes, int cpus);
-int calculate_processes_to_generate(int max_concurrent, int total_processes, int current_active, int generated_so_far);
+int findSmallestQueue(int * queueSizes, int numOfCPUS);
+int calculateProcessesToGenerate(int maxConcurrentProcesses, int totalProcesses, int readyProcesses, int totalGeneratedProcesses);
 void ioDaemonFinished();
 void boosterFinished();
 void simulatorFinished();
+void simulatorAverageTimes(int cpuId, double rollingAvgResponseTime, double rollingAvgTurnAroundTime);
 
 
 typedef struct {
@@ -114,39 +115,43 @@ int switchProcessor(int cpuIndex) {
     return (cpuIndex + 1) % NUMBER_OF_CPUS;
 }
 
-int findSmallestQueue(int * queueSizes, int cpus) {
+int findSmallestQueue(int * queueSizes, int numOfCPUS) {
     int smallest = INT_MAX;
     int index = 0;
     int i;
-    for(i = 0; i < cpus; i++){
+    for(i = 0; i < numOfCPUS; i++){
         if(smallest >= queueSizes[i]) {
             smallest = queueSizes[i];
             index = i;
-//            printf("smallest: %d\n",smallest);
         }
     }
     return index;
 }
 
-int calculate_processes_to_generate(int max_concurrent, int total_processes, int current_active, int generated_so_far) {
+int calculateProcessesToGenerate(int maxConcurrentProcesses, int totalProcesses, int readyProcesses,
+                                 int totalGeneratedProcesses) {
     // Calculate the remaining processes to be generated
-    int remaining_processes = total_processes - generated_so_far;
-
-    // Calculate how many processes can be added without exceeding max_concurrent
-    int available_slots = max_concurrent - current_active;
-
+    int remainingProcesses = totalProcesses - totalGeneratedProcesses;
+    // Calculate how many processes can be added without exceeding maxConcurrentProcesses
+    int availableSlots = maxConcurrentProcesses - readyProcesses;
     // The number of processes to generate is the minimum of available slots and remaining processes
-    int processes_to_generate = (available_slots < remaining_processes) ? available_slots : remaining_processes;
-
-    return processes_to_generate;
+    int processesToGenerate = (availableSlots < remainingProcesses) ? availableSlots : remainingProcesses;
+    return processesToGenerate;
 }
 
 void ioDaemonFinished() {
     printf("I/O DAEMON: Finished\n");
 }
+
 void boosterFinished() {
     printf("BOOSTER DAEMON: Finished\n");
 }
+
 void simulatorFinished() {
     printf("SIMULATOR: Finished\n");
+}
+
+void simulatorAverageTimes(int cpuId, double rollingAvgResponseTime, double rollingAvgTurnAroundTime) {
+    printf("SIMULATOR - CPU %d: rolling average response time = %.6f, rolling average turnaround "
+           "time = %.6f\n", cpuId, rollingAvgResponseTime, rollingAvgTurnAroundTime);
 }

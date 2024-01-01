@@ -11,7 +11,7 @@ typedef enum {false, true} bool;
 #define MAX_CONCURRENT_PROCESSES    5 //max number of processes in the system at any one point in time
 #define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES // number of processes in the process table
 #define NUMBER_OF_PRIORITY_LEVELS 16
-#define NUMBER_OF_CPUS 3  // number of CPU emulators
+#define NUMBER_OF_CPUS 2  // number of CPU emulators
 #define NUMBER_OF_QUEUE_SETS 1  // number of CPU emulators
 #define NUMBER_OF_IO_DEVICES 2
 

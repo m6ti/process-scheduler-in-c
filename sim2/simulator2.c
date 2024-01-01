@@ -1,7 +1,6 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
 #include <stdio.h>
-#define NUMBER_OF_PROCESSES 5
 
 int main(){
     Process *tempProcess;

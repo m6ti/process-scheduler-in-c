@@ -23,7 +23,7 @@ LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;
 int totalResponseTime = 0;
 int totalTurnAroundTime = 0;
 
-int processesTerminated = 0, readyProcesses = 0;
+int processesTerminated = 0, readyProcesses = 0, processesWaitingForTermination = 0;
 int processesLeftToGenerate = NUMBER_OF_PROCESSES;
 
 #define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
@@ -51,18 +51,29 @@ void returnToPool(int pid){
 }
 
 int main(){
+    // Initialise threads
     pthread_t pGenerator, pRunner, pTerminator;
+    if(NUMBER_OF_CPUS <=0 || NUMBER_OF_PROCESSES <= 0 || MAX_CONCURRENT_PROCESSES <= 0) {
+        fprintf(stderr, "Initialization Error: NUMBER_OF_CPUS, NUMBER_OF_PROCESSES, "
+                        "and MAX_CONCURRENT_PROCESSES must all be greater than 0.\n");
+        fprintf(stderr, "Current values - NUMBER_OF_CPUS: %d, NUMBER_OF_PROCESSES: %d, MAX_CONCURRENT_"
+                        "PROCESSES: %d\n", NUMBER_OF_CPUS, NUMBER_OF_PROCESSES, MAX_CONCURRENT_PROCESSES);
+        exit(EXIT_FAILURE);
+    }
 
+    // Initialise semaphores
     sem_init(&sync1, 0, 1);
     sem_init(&full, 0, 0);
     sem_init(&empty, 0, 1);
     sem_init(&disposalSync, 0, 0);
     sem_init(&disposalDone, 0, 0);
 
+    // Create threads
     pthread_create((&pGenerator), NULL, processGenerator, NULL);
     pthread_create((&pRunner), NULL, processRunner, NULL);
     pthread_create((&pTerminator), NULL, processTerminator, NULL);
 
+    // Join threads
     pthread_join(pGenerator, NULL);
     pthread_join(pRunner, NULL);
     pthread_join(pTerminator, NULL);
@@ -115,11 +126,11 @@ void * processRunner( void* p){
     long responseTime, turnAroundTime;
     int terminatedFlag = 0;
 
-    while(1){
+    while(1) {
         // Wait for generator to finish adding at most MAX_CONCURRENT_PROCESSES processes to the queue
         sem_wait(&full);
         sem_wait(&sync1);
-        while(1){
+        while(1) {
             // Retrieve the first process in the ready queue
             tempProcess = ((Process *)(getHead(readyQueue)->pData));
             removeFirst(&readyQueue);
@@ -132,6 +143,7 @@ void * processRunner( void* p){
             if(tempProcess->iState == TERMINATED) {
                 // If the process terminates, add to the terminated queue.
                 addLast(tempProcess, &terminatedQueue);
+                processesWaitingForTermination++;
                 // Calculate metrics
                 responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,
                                                            tempProcess->oFirstTimeRunning);
@@ -149,8 +161,7 @@ void * processRunner( void* p){
                 sem_post(&disposalSync);
                 sem_wait(&disposalDone);
             }
-            // BLOCKED?!?!?!?!?
-            else{
+            else {
                 // If the process hasn't terminated, add to the end of the ready queue.
                 addLast(tempProcess,&readyQueue);
                 readyProcesses++;
@@ -158,7 +169,7 @@ void * processRunner( void* p){
                 queueInfo("QUEUE - ADDED", "READY",readyProcesses,tempProcess);
                 simulatorReadyInfo(tempProcess);
             }
-            if(terminatedFlag == 1){
+            if(terminatedFlag == 1) {
                 // Check if we need to break loop
                 terminatedFlag = 0;
                 sem_post(&sync1);
@@ -184,7 +195,9 @@ void * processTerminator(void* p){
         while(getHead(terminatedQueue) != NULL){
             tempProcess = removeFirst(&terminatedQueue);
             processesTerminated++;
-            queueInfo("QUEUE - REMOVED","TERMINATED",1,tempProcess);
+            queueInfo("QUEUE - REMOVED","TERMINATED",processesWaitingForTermination,
+                      tempProcess);
+            processesWaitingForTermination--;
             terminationInfo(tempProcess,processesTerminated);
             // Return PID to enable reuse of ids
             returnToPool(tempProcess->iPID);

@@ -5,7 +5,6 @@
 
 int main() {
     Process *process;
-    LinkedList *ready;
     struct timeval start, end, rStart, rEnd;
 
     process = generateProcess(0);

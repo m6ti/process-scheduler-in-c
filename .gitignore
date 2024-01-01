@@ -2,3 +2,4 @@ cmake-build-debug
 .vscode
 .dist
 outputs
+old_executables
