@@ -1,10 +1,11 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
-#include "../util.c"
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <float.h>
+#include <limits.h>
+//#include "../util.c"
 
 void * processGenerator(void* p);
 void * processRunner(void* p);
@@ -12,6 +13,48 @@ void * processTerminator(void* p);
 void * boosterDaemon( void * p);
 void * ioDaemon(void *p);
 void * loadBalancingDaemon(void *p);
+
+void processInfo(char* event, Process* process);
+void queueInfo(char* event, char* status, int size, Process* process, int specifyPriority);
+void simulatorReadyInfo(Process* process);
+void terminationInfo(Process* process, int counter);
+void simulatorTerminated(Process* process, int responseTime, int turnaroundTime);
+void finalTerminationInfo(int responseTime, int turnAroundTime);
+void boosterCreated();
+void boosterInfo(Process* process);
+void ioDaemonInfo(Process* process);
+void ioInfo(Process* process);
+void queueSetInfo(char* event, int size, Process* process, int cpuIndex);
+int switchProcessor(int cpuIndex);
+int findSmallestQueue(int * queueSizes, int numOfCPUS);
+int calculateProcessesToGenerate(int maxConcurrentProcesses, int totalProcesses, int processes,
+                                 int totalGeneratedProcesses);
+void ioDaemonFinished();
+void boosterFinished();
+void simulatorFinished();
+void simulatorAverageTimes(int cpuId, double responseTime, double turnAroundTime);
+void multiSimulatorInfo(Process* process,char * scheduling, int id);
+
+typedef struct {
+    int active;
+    Process *process;
+} ProcessTableEntry;
+
+#define SIZE_OF_PROCESS_TABLE MAX_CONCURRENT_PROCESSES
+
+int getPidFromPool(ProcessTableEntry* processTable){
+    for(int i=0; i<MAX_CONCURRENT_PROCESSES;i++){
+        if( processTable[i].active == 0 ){
+            processTable[i].active = 1;
+            return i;
+        }
+    } return -1;
+}
+
+void returnToPool(int pid, ProcessTableEntry* processTable){
+    processTable[pid].active = 0;
+    processTable[pid].process = NULL;
+}
 
 sem_t empty, full, sync1, disposalSync, disposalDone;
 sem_t syncSemaphores[NUMBER_OF_CPUS];
@@ -393,4 +436,118 @@ void * processTerminator(void* p){
 
     finalTerminationInfo(totalResponseTime,totalTurnAroundTime);
     return NULL;
+}
+
+
+// Functions from util.c
+
+
+void processInfo(char* event, Process* process) {
+    printf("%s - [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+           event, process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
+}
+
+void queueInfo(char* event, char* status, int size, Process* process, int specifyPriority){
+    if (specifyPriority == 0 ) {
+        printf("%s - [Queue = %s, Size = %d, PID = %d, Priority = %d]\n",
+               event, status, size, process->iPID, process->iPriority);
+    }
+    else{
+        printf("%s - [Queue = %s %d, Size = %d, PID = %d, Priority = %d]\n",
+               event, status, specifyPriority ,size, process->iPID, process->iPriority);
+    }
+}
+
+void queueSetInfo(char* event, int size, Process* process, int cpuIndex){
+    printf("%s - [Queue = SET %d, Size = %d, PID = %d, Priority = %d]\n",
+           event, cpuIndex, size, process->iPID, process->iPriority);
+}
+
+void multiSimulatorInfo(Process* process,char * scheduling, int id){
+    printf("SIMULATOR - CPU %d: %s [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+           id, scheduling, process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
+}
+
+void simulatorReadyInfo(Process* process) {
+    printf("SIMULATOR - CPU 0: READY [PID = %d, Priority = %d]\n",
+           process->iPID, process->iPriority);
+}
+void simulatorTerminated(Process* process, int responseTime, int turnaroundTime){
+    printf("SIMULATOR - CPU 0 - TERMINATED: [PID = %d, ResponseTime = %d, TurnAroundTime = %d]\n",
+           process->iPID, responseTime, turnaroundTime);
+}
+
+void terminationInfo(Process* process, int counter){
+    printf("TERMINATION DAEMON - CLEARED: [#iTerminated = %d, PID = %d, Priority = %d]\n",
+           counter, process->iPID, process->iPriority);
+}
+
+void finalTerminationInfo(int responseTime, int turnAroundTime){
+    printf("TERMINATION DAEMON: Finished\n");
+    printf("TERMINATION DAEMON: [Average Response Time = %d, Average Turn Around Time = %d]\n",
+           responseTime / NUMBER_OF_PROCESSES, turnAroundTime / NUMBER_OF_PROCESSES);
+}
+
+void boosterCreated(){
+    printf("BOOSTER DAEMON: Created\n");
+}
+
+void boosterInfo(Process* process){
+    printf("BOOSTER DAEMON: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]"
+           " => Boosted to Level %d\n", process->iPID, process->iPriority, process->iBurstTime,
+           process->iRemainingBurstTime, NUMBER_OF_PRIORITY_LEVELS/2);
+}
+
+void ioDaemonInfo(Process* process){
+    printf("I/O DAEMON - UNBLOCKED: [PID = %d, Priority = %d]\n", process->iPID, process->iPriority);
+}
+
+void ioInfo(Process* process) {
+    printf("SIMULATOR - CPU 0 - I/O BLOCKED: [PID = %d, Priority = %d, Device = %d]\n",
+           process->iPID, process->iPriority, process->iDeviceID);
+}
+
+int switchProcessor(int cpuIndex) {
+    return (cpuIndex + 1) % NUMBER_OF_CPUS;
+}
+
+int findSmallestQueue(int * queueSizes, int numOfCPUS) {
+    int smallest = INT_MAX;
+    int index = 0;
+    int i;
+    for(i = 0; i < numOfCPUS; i++){
+        if(smallest >= queueSizes[i]) {
+            smallest = queueSizes[i];
+            index = i;
+        }
+    }
+    return index;
+}
+
+int calculateProcessesToGenerate(int maxConcurrentProcesses, int totalProcesses, int processes,
+                                 int totalGeneratedProcesses) {
+    // Calculate the remaining processes to be generated
+    int remainingProcesses = totalProcesses - totalGeneratedProcesses;
+    // Calculate how many processes can be added without exceeding maxConcurrentProcesses
+    int availableSlots = maxConcurrentProcesses - processes;
+    // The number of processes to generate is the minimum of available slots and remaining processes
+    int processesToGenerate = (availableSlots < remainingProcesses) ? availableSlots : remainingProcesses;
+    return processesToGenerate;
+}
+
+void ioDaemonFinished() {
+    printf("I/O DAEMON: Finished\n");
+}
+
+void boosterFinished() {
+    printf("BOOSTER DAEMON: Finished\n");
+}
+
+void simulatorFinished() {
+    printf("SIMULATOR: Finished\n");
+}
+
+void simulatorAverageTimes(int cpuId, double responseTime, double turnAroundTime) {
+    printf("SIMULATOR - CPU %d: rolling average response time = %.6f, rolling average turnaround "
+           "time = %.6f\n", cpuId, responseTime, turnAroundTime);
 }
