@@ -3,22 +3,19 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include "../outputs.c"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 void * processGenerator(void* p);
 void * processRunner(void* p);
 void * processTerminator(void* p);
 
-sem_t empty, full, sync1, disposalSync, disposalDone;
+sem_t empty,full,sync1,disposalSync,disposalDone;
 
 LinkedList readyQueue = LINKED_LIST_INITIALIZER, terminatedQueue = LINKED_LIST_INITIALIZER;
 
 int totalResponseTime = 0, totalTurnAroundTime = 0;
+
 int processesTerminated = 0, processesLeftToGenerate = NUMBER_OF_PROCESSES, readyProcesses = 0;
-int readyToTerminateProcesses = 0, createdProcesses = 0;
 
 int main() {
     // Initialise threads
@@ -36,12 +33,12 @@ int main() {
     sem_init(&full, 0, 0);
     sem_init(&empty, 0, 1);
     sem_init(&disposalSync, 0, 0);
-//    sem_init(&disposalDone, 0, 1);
 
-    // Create thread0
+    // Create threads
     pthread_create((&pGenerator), NULL, processGenerator, NULL);
     pthread_create((&pRunner), NULL, processRunner, NULL);
     pthread_create((&pTerminator), NULL, processTerminator, NULL);
+
 
     // Join threads
     pthread_join(pGenerator, NULL);
@@ -53,37 +50,41 @@ int main() {
 void * processGenerator( void * p) {
     //loop initialises linked list that represents the ready queue with processes.
     Process *tempProcess;
-    int smaller;
+    int idTracker = 0, smaller;
 
-    while(processesLeftToGenerate != 0) {
+    while(processesLeftToGenerate!=0) {
         sem_wait(&empty);
         sem_wait(&sync1);
 
         //This should run until there is either max num of concurrent processes or if smaller, the number of processes.
-        smaller = processesLeftToGenerate < MAX_CONCURRENT_PROCESSES ? processesLeftToGenerate : MAX_CONCURRENT_PROCESSES;
-
+        if(processesLeftToGenerate < MAX_CONCURRENT_PROCESSES)
+            smaller = processesLeftToGenerate;
+        else
+            smaller = MAX_CONCURRENT_PROCESSES;
         while(readyProcesses != smaller) {
 
             // Generate a process with the PID and add to table.
-            tempProcess = generateProcess(createdProcesses);
-
-            output("GENERATOR - CREATED:", tempProcess);
+            tempProcess = generateProcess(idTracker);
+            printf("GENERATOR - CREATED: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+                   tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime,
+                   tempProcess->iRemainingBurstTime);
 
             // Set relevant variables
+            idTracker++;
             readyProcesses++;
-            createdProcesses ++;
             processesLeftToGenerate--;
-
             // Add to relevant ready queue
             addLast(tempProcess, &readyQueue);
-            queueOutput("QUEUE - ADDED:", "READY", createdProcesses, tempProcess);
+            printf("QUEUE - ADDED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
+                   idTracker, tempProcess->iPID, tempProcess->iPriority);
 
-            output("GENERATOR - ADMITTED:", tempProcess);
+            printf("GENERATOR - ADMITTED: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+                   tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime,
+                   tempProcess->iRemainingBurstTime);
         }
         sem_post(&sync1);
         sem_post(&full);
     }
-
     printf("GENERATOR: Finished\n");
     return NULL;
 }
@@ -94,31 +95,37 @@ void * processRunner( void* p){
     long responseTime, turnAroundTime;
 
 
-    while(processesTerminated != NUMBER_OF_PROCESSES) {
+    while(processesTerminated != NUMBER_OF_PROCESSES){
         sem_wait(&full);
         sem_wait(&sync1);
 
-        while(getHead(readyQueue) != NULL) {
-            tempProcess = (Process *) getHead(readyQueue)->pData;
+        while(getHead(readyQueue) != NULL){
+            tempProcess = ((Process *)(getHead(readyQueue)->pData));
             removeFirst(&readyQueue);
             readyProcesses--;
-            queueOutput("QUEUE - REMOVED:", "READY", readyProcesses, tempProcess);
 
+            printf("QUEUE - REMOVED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
+                   readyProcesses, tempProcess->iPID, tempProcess->iPriority);
             // Run the process.
             runPreemptiveProcess(tempProcess,true);
-            cpuOutput("SIMULATOR - CPU 0: RR", tempProcess);
+
+            printf("SIMULATOR - CPU 0: RR [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
+                   tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime, tempProcess->iRemainingBurstTime);
 
             if(tempProcess->iState == TERMINATED){
+                // If the process terminates, add to the terminated queue.
+                addLast(tempProcess,&terminatedQueue);
+
                 responseTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,tempProcess->oFirstTimeRunning);
                 turnAroundTime = getDifferenceInMilliSeconds(tempProcess->oTimeCreated,tempProcess->oLastTimeRunning);
                 totalResponseTime+=responseTime;
                 totalTurnAroundTime+=turnAroundTime;
-                responseTimeOutput("SIMULATOR - CPU 0 - TERMINATED:", tempProcess, responseTime, turnAroundTime);
 
-                // If the process terminates, add to the terminated queue.
-                addLast(tempProcess,&terminatedQueue);
-                readyToTerminateProcesses ++;
-                queueOutput("QUEUE - ADDED:", "TERMINATED", 1, tempProcess);
+                printf("SIMULATOR - CPU 0 - TERMINATED: [PID = %d, ResponseTime = %ld, TurnAroundTime = %ld]\n",
+                       tempProcess->iPID, responseTime, turnAroundTime);
+                printf("QUEUE - ADDED: [Queue = TERMINATED, Size = %d, PID = %d, Priority = %d]\n",
+                       1, tempProcess->iPID, tempProcess->iPriority);
+
 
                 // This tells the terminator to clear the terminated queue.
                 sem_post(&disposalSync);
@@ -131,9 +138,11 @@ void * processRunner( void* p){
                 // If the process still requires the CPU and HASN'T terminated, add to the end of the ready queue.
                 addLast(tempProcess,&readyQueue);
                 readyProcesses++;
-                queueOutput("QUEUE - ADDED:", "READY", readyProcesses,tempProcess);
 
-                cpuOutput("SIMULATOR - CPU 0 - READY:", tempProcess);
+                printf("QUEUE - ADDED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
+                       readyProcesses,tempProcess->iPID, tempProcess->iPriority);
+                printf("SIMULATOR - CPU 0 - READY: [PID = %d, Priority = %d]\n",
+                       tempProcess->iPID, tempProcess->iPriority);
             }
         }
         sem_post(&sync1);
@@ -144,35 +153,33 @@ void * processRunner( void* p){
 
 
 void * processTerminator(void* p){
-    int tempPID, tempPriority;
+    int tempPID,tempPriority;
     Process *tempProcess;
 
-    while(readyToTerminateProcesses != 0) {
+    while(processesTerminated!= NUMBER_OF_PROCESSES){
+
         sem_wait(&disposalSync);
-
-        while(getHead(terminatedQueue) != NULL) {
+        while(getHead(terminatedQueue) != NULL){
             tempProcess = removeFirst(&terminatedQueue);
-            processesTerminated ++;
-            readyToTerminateProcesses --;
+            processesTerminated++;
 
-            queueOutput("QUEUE - REMOVED:", "TERMINATED", 1, tempProcess);
-
+            printf("QUEUE - REMOVED: [Queue = TERMINATED, Size = %d, PID = %d, Priority = %d]\n",
+                   1, tempProcess->iPID, tempProcess->iPriority);
             tempPID = tempProcess->iPID;
             tempPriority = tempProcess->iPriority;
             destroyProcess(tempProcess);
-
-            terminationOutput(processesTerminated, tempPID, tempPriority);
+            printf("TERMINATION DAEMON - CLEARED: [#iTerminated = %d, PID = %d, Priority = %d]\n",
+                   processesTerminated, tempPID, tempPriority);
         }
 
-       /* Removing this lets me maximise parallelism, by letting the simulator and generator run
-        instead of making them wait for the terminator */
+        /* Removing this lets me maximise parallelism, by letting the simulator and generator run
+         instead of making them wait for the terminator */
 //       sem_post(&disposalDone);
     }
     printf("TERMINATION DAEMON: Finished\n");
-    averageResponseTimeOutput("TERMINATION DAEMON:", totalResponseTime/NUMBER_OF_PROCESSES, totalTurnAroundTime/NUMBER_OF_PROCESSES);
+    printf("TERMINATION DAEMON: [Average Response Time = %d, Average Turn Around Time = %d]\n",
+           totalResponseTime/NUMBER_OF_PROCESSES, totalTurnAroundTime/NUMBER_OF_PROCESSES);
 
     //Gets out of while loop in process simulator.
     sem_post(&full);
 }
-
-#pragma clang diagnostic pop

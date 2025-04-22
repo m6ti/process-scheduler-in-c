@@ -15,7 +15,7 @@ void terminationInfo(Process* process, int counter);
 void simulatorTerminated(Process* process, int responseTime, int turnaroundTime);
 void finalTerminationInfo();
 
-sem_t empty,full,sync1,disposalSync,disposalDone;
+sem_t empty, full, sync1, disposalSync, disposalDone;
 
 LinkedList readyQueue = LINKED_LIST_INITIALIZER;
 LinkedList terminatedQueue = LINKED_LIST_INITIALIZER;

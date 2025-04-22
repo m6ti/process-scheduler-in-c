@@ -1,5 +1,7 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
+#include "../outputs.c"
+
 #include <stdio.h>
 
 int main(){
@@ -11,16 +13,12 @@ int main(){
     //loop initialises linked list that represents the ready queue with processes.
     for(int i=0;i<NUMBER_OF_PROCESSES;i++){
         tempProcess = generateProcess(i);
-        printf("GENERATOR - CREATED: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-               tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime, tempProcess->iRemainingBurstTime);
+        output("GENERATOR - CREATED", tempProcess);
 
         addLast(tempProcess,&readyQueue);
-        printf("QUEUE - ADDED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
-               i + 1,tempProcess->iPID,tempProcess->iPriority);
+        queueOutput("QUEUE - ADDED:", "READY", i + 1, tempProcess);
 
-        printf("GENERATOR - ADMITTED: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-               tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime, tempProcess->iRemainingBurstTime);
-
+        output("GENERATOR - ADMITTED:", tempProcess);
     }
 
     printf("GENERATOR: Finished\n");
@@ -35,13 +33,11 @@ int main(){
         tempProcess = ((Process *)(getHead(readyQueue)->pData));
         removeFirst(&readyQueue);
         readySize--;
-        printf("QUEUE - REMOVED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
-               readySize, tempProcess->iPID, tempProcess->iPriority);
+        queueOutput("QUEUE - REMOVED:", "READY", readySize, tempProcess);
 
         // Run the process.
         runPreemptiveProcess(tempProcess,true);
-        printf("SIMULATOR - CPU 0: RR [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-               tempProcess->iPID, tempProcess->iPriority, tempProcess->iBurstTime, tempProcess->iRemainingBurstTime);
+        output("SIMULATOR - CPU 0:", tempProcess);
 
         if(tempProcess->iState == TERMINATED){
             // If the process terminates, add to the terminated queue.
@@ -53,24 +49,22 @@ int main(){
             totalResponseTime+=responseTime;
             totalTurnAroundTime+=turnAroundTime;
 
-            printf("SIMULATOR - CPU 0 - TERMINATED: [PID = %d, ResponseTime = %ld, TurnAroundTime = %ld]\n",
-                     tempProcess->iPID, responseTime, turnAroundTime);
-            printf("QUEUE - ADDED: [Queue = TERMINATED, Size = %d, PID = %d, Priority = %d]\n",
-                   terminatedSize, tempProcess->iPID, tempProcess->iPriority);
+            output("SIMULATOR - CPU 0 - TERMINATED:", tempProcess);
+
+            queueOutput("QUEUE - ADDED:", "TERMINATED", terminatedSize, tempProcess);
         }
         else{
             // If the process still requires the CPU and hasn't terminated, add to the end of the ready queue.
             addLast(tempProcess,&readyQueue);
             readySize++;
 
-            printf("QUEUE - ADDED: [Queue = READY, Size = %d, PID = %d, Priority = %d]\n",
-                   readySize,tempProcess->iPID, tempProcess->iPriority);
+            queueOutput("QUEUE - ADDED:", "READY", readySize, tempProcess);
         }
 
         // CPU is done with the process.
-        printf("SIMULATOR - CPU 0 - READY: [PID = %d, Priority = %d]\n",
-               tempProcess->iPID, tempProcess->iPriority);
+        cpuOutput("SIMULATOR - CPU 0 - READY:", tempProcess);
     }
+
     printf("SIMULATOR: Finished\n");
 
     int tempPID,tempPriority;
@@ -78,16 +72,14 @@ int main(){
     while(getHead(terminatedQueue) != NULL){
         tempProcess = removeFirst(&terminatedQueue);
         terminatedSize--;
-        printf("QUEUE - REMOVED: [Queue = TERMINATED, Size = %d, PID = %d, Priority = %d]\n",
-               terminatedSize, tempProcess->iPID, tempProcess->iPriority);
+        queueOutput("QUEUE - REMOVED:", "TERMINATED", terminatedSize, tempProcess);
+
         tempPID = tempProcess->iPID;
         tempPriority = tempProcess->iPriority;
         destroyProcess(tempProcess);
-        printf("TERMINATION DAEMON - CLEARED: [#iTerminated = %d, PID = %d, Priority = %d]\n",
-               NUMBER_OF_PROCESSES-terminatedSize, tempPID, tempPriority);
+        terminationOutput(NUMBER_OF_PROCESSES - terminatedSize, tempPID, tempPriority);
     }
     printf("TERMINATION DAEMON: Finished\n");
-    printf("TERMINATION DAEMON: [Average Response Time = %ld, Average Turn Around Time = %ld]\n",
-           totalResponseTime/NUMBER_OF_PROCESSES, totalTurnAroundTime/NUMBER_OF_PROCESSES);
 
+    averageResponseTimeOutput("TERMINATION DAEMON:", totalResponseTime/NUMBER_OF_PROCESSES, totalTurnAroundTime/NUMBER_OF_PROCESSES);
 }

@@ -1,5 +1,6 @@
 #include "../linkedlist.c"
 #include "../coursework.c"
+#include "../outputs.c"
 #include <stdio.h>
 
 
@@ -13,25 +14,26 @@ int main() {
     gettimeofday(&start, NULL);
     gettimeofday(&rStart, NULL);
 
-    printf("GENERATOR - CREATED: [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-           process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
+    output("GENERATOR - CREATED", process);
 
     while (process->iState != TERMINATED) {
         //End timer for response time (Only one process, and it will access CPU now).
-        if (process->iBurstTime==process->iRemainingBurstTime){
+        if (process->iBurstTime <= process->iRemainingBurstTime){
             gettimeofday(&rEnd, NULL);
         }
 
         runPreemptiveProcess(process, true);
-        printf("SIMULATOR - [PID = %d, Priority = %d, InitialBurstTime = %d, RemainingBurstTime = %d]\n",
-               process->iPID, process->iPriority, process->iBurstTime, process->iRemainingBurstTime);
-
+        output("SIMULATOR -", process);
     }
+
     //end timer for turnaround time.
     gettimeofday(&end, NULL);
 
-    printf("TERMINATOR - TERMINATED: [PID = %ld, ResponseTime = %ld, TurnAroundTime = %ld]\n",
-           process->iPID, getDifferenceInMilliSeconds(rStart, rEnd), getDifferenceInMilliSeconds(start, end));
+    responseTimeOutput("TERMINATOR - TERMINATED:", process,
+                       getDifferenceInMilliSeconds(rStart, rEnd),
+                       getDifferenceInMilliSeconds(start, end));
 
     destroyProcess(process);
+
+    return 0;
 }
